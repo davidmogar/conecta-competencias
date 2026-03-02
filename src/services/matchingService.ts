@@ -1,4 +1,4 @@
-import { Competency, CareerSuggestion } from '../types';
+import { Competency, CareerSuggestion, RoleMatch } from '../types';
 import { CAREER_DATABASE, COMPETENCIES } from '../constants';
 
 export function identifyCompetenciesFromQuiz(quizScores: Record<string, number>): Competency[] {
@@ -11,46 +11,61 @@ export function identifyCompetenciesFromQuiz(quizScores: Record<string, number>)
   return COMPETENCIES.filter(c => sortedIds.includes(c.id));
 }
 
-export function getCareerSuggestions(selectedCompetencies: Competency[]): CareerSuggestion[] {
-  const userCompIds = selectedCompetencies.map(c => c.id);
+export function getCareerSuggestions(selectedCompetencies: Competency[], allAptitudeIds?: string[]): CareerSuggestion[] {
+  // Use allAptitudeIds if provided (quiz mode), otherwise use selectedCompetencies (manual mode)
+  const availableCompIds = allAptitudeIds || selectedCompetencies.map(c => c.id);
   const suggestions: CareerSuggestion[] = [];
 
   CAREER_DATABASE.forEach(area => {
-    // Score roles in this area based on how many required competencies the user has
-    const scoredRoles = area.roles.map(role => {
-      const matchCount = role.requiredCompetencies.filter(rc => userCompIds.includes(rc)).length;
-      return { ...role, matchCount };
+    // Score each role in this area
+    const roleMatches: RoleMatch[] = area.roles.map(role => {
+      const matchingIds = role.requiredCompetencies.filter(rc => availableCompIds.includes(rc));
+      const missingIds = role.requiredCompetencies.filter(rc => !availableCompIds.includes(rc));
+      
+      const matchScore = Math.round((matchingIds.length / role.requiredCompetencies.length) * 100);
+      
+      // Helper to get names, handling potentially missing competencies in the master list
+      const getNames = (ids: string[]) => ids.map(id => {
+        const comp = COMPETENCIES.find(c => c.id === id);
+        return comp ? comp.name : id.replace(/_/g, ' ');
+      });
+
+      return {
+        title: role.title,
+        matchScore,
+        matchingCompetencies: getNames(matchingIds),
+        missingCompetencies: getNames(missingIds)
+      };
     });
 
-    // Filter roles where user has at least 1 matching competency (lenient for entry-level)
-    const matchedRoles = scoredRoles
-      .filter(r => r.matchCount >= 1)
-      .sort((a, b) => b.matchCount - a.matchCount);
+    // Filter roles with at least some match
+    const filteredRoleMatches = roleMatches
+      .filter(rm => rm.matchScore > 0)
+      .sort((a, b) => b.matchScore - a.matchScore);
 
-    if (matchedRoles.length > 0) {
-      // Generate dynamic reasoning based on matched competencies
-      const bestRole = matchedRoles[0];
-      const matchedCompNames = selectedCompetencies
-        .filter(c => bestRole.requiredCompetencies.includes(c.id))
-        .map(c => c.name);
-        
+    if (filteredRoleMatches.length > 0) {
+      const bestRole = filteredRoleMatches[0];
+      const overallMatchScore = bestRole.matchScore;
+      
       let reasoning = '';
-      if (matchedCompNames.length > 0) {
-        reasoning = `Tu perfil encaja muy bien aquí gracias a tus habilidades en ${matchedCompNames.slice(0, 2).join(' y ')}. Estas cualidades son muy valoradas en este sector para realizar el trabajo con éxito.`;
+      if (bestRole.matchingCompetencies.length > 0) {
+        reasoning = `Tu perfil encaja muy bien en el área de ${area.name} gracias a tus habilidades en ${bestRole.matchingCompetencies.slice(0, 2).join(' y ')}.`;
       } else {
-        reasoning = `Tus habilidades generales muestran potencial para desarrollarte en este sector con la formación adecuada.`;
+        reasoning = `Tus habilidades generales muestran potencial para desarrollarte en ${area.name} con la formación adecuada.`;
       }
 
       suggestions.push({
         area: area.name,
-        roles: matchedRoles.slice(0, 4).map(r => r.title),
-        reasoning
+        description: area.description,
+        roles: filteredRoleMatches.slice(0, 4),
+        reasoning,
+        overallMatchScore
       });
     }
   });
 
-  // Sort areas by the highest number of matched roles, return top 4
+  // Sort areas by overall match score descending, return top 4
   return suggestions
-    .sort((a, b) => b.roles.length - a.roles.length)
+    .sort((a, b) => b.overallMatchScore - a.overallMatchScore)
     .slice(0, 4);
 }

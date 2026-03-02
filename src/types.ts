@@ -5,10 +5,19 @@ export interface Competency {
   category: 'Cognitiva' | 'Interpersonal' | 'Liderazgo' | 'Organizativa' | 'Personal' | 'Digital' | 'Estratégica' | 'Hard' | 'Soft' | 'Technical';
 }
 
+export interface RoleMatch {
+  title: string;
+  matchScore: number;
+  matchingCompetencies: string[];
+  missingCompetencies: string[];
+}
+
 export interface CareerSuggestion {
   area: string;
-  roles: string[];
+  description: string;
+  roles: RoleMatch[];
   reasoning: string;
+  overallMatchScore: number;
 }
 
 export interface AssessmentResult {
